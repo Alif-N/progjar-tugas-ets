@@ -1,0 +1,7 @@
+Test No,Operation,Size,Client Pool,Server Pool,Total Time (s),Throughput (B/s),Success Client,Fail Client,Success Server,Fail Server
+1,UPLOAD,10MB,1,1,0.26,41037003,1,0,1,0
+2,DOWNLOAD,10MB,1,1,0.22,47598060,1,0,1,0
+3,UPLOAD,50MB,1,1,5.3,9887317,1,0,1,0
+4,DOWNLOAD,50MB,1,1,5.18,10114276,1,0,1,0
+5,UPLOAD,100MB,1,1,20.64,5079939,1,0,1,0
+6,DOWNLOAD,100MB,1,1,20.39,5142194,1,0,1,0
