@@ -9,139 +9,101 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool
 import csv
 
-BUFFER_SIZE = 65536 # 64KB
-SERVER_ADDRESS = ('localhost', 1231)
+BUFFER_SIZE = 65536  # buffer 64KB
+SERVER_ADDRESS = ('localhost', 45000)
+
+# Daftar file untuk pengujian
 TEST_FILES = {
-    '10MB': 'file_10MB.dat',
-    '50MB': 'file_50MB.dat',
-    '100MB': 'file_100MB.dat'
+    '10MB': 'file_10mb.dat',
+    '50MB': 'file_50mb.dat',
+    '100MB': 'file_100mb.dat'
 }
 
 def send_command(command_str):
     try:
         with socket.create_connection(SERVER_ADDRESS) as sock:
             sock.sendall((command_str + "\r\n\r\n").encode())
-            data_received = ""
+            response_data = ""
             while True:
-                data = sock.recv(65536)
-                if not data:
+                chunk = sock.recv(BUFFER_SIZE)
+                if not chunk:
                     break
-                data_received += data.decode()
-                if "\r\n\r\n" in data_received:
+                response_data += chunk.decode()
+                if "\r\n\r\n" in response_data:
                     break
-            return json.loads(data_received)
+            return json.loads(response_data)
     except Exception as e:
         return {'status': 'ERROR', 'data': str(e)}
+
     
 def remote_get(filename=""):
-    start_time = time.time()
-    command_str = f"GET {filename}\r\n"
-    hasil = send_command(command_str)
-    elapsed_time = time.time() - start_time
+    start = time.time()
+    command = f"GET {filename}\r\n"
+    result = send_command(command)
+    duration = time.time() - start
 
-    if hasil and hasil.get('status') == 'OK':
+    if result and result.get('status') == 'OK':
         try:
-            namafile = hasil['data_namafile']
-            isifile = base64.b64decode(hasil['data_file'])
-            with open(namafile, 'wb+') as fp:
-                fp.write(isifile)
-            print(f"File '{namafile}' berhasil di-download.")
+            filename = result['data_namafile']
+            content = base64.b64decode(result['data_file'])
+            with open(filename, 'wb') as f:
+                f.write(content)
+            print(f"File '{filename}' berhasil di-download.")
             return {
-                'status': 'OK',
-                'filename': namafile,
-                'bytes': len(isifile),
-                'time': elapsed_time,
-                'error': None
+                'status': 'OK', 'filename': filename,
+                'bytes': len(content), 'time': duration, 'error': None
             }
         except Exception as e:
-            print(f"Gagal menulis file: {str(e)}")
-            return {
-                'status': 'ERROR',
-                'filename': filename,
-                'bytes': 0,
-                'time': elapsed_time,
-                'error': str(e)
-            }
+            print(f"Gagal menulis file: {e}")
+            return {'status': 'ERROR', 'filename': filename, 'bytes': 0, 'time': duration, 'error': str(e)}
     else:
         print("Gagal mendapatkan file")
         return {
-            'status': 'ERROR',
-            'filename': filename,
-            'bytes': 0,
-            'time': elapsed_time,
-            'error': hasil.get('data', 'Unknown error') if hasil else 'No response'
+            'status': 'ERROR', 'filename': filename,
+            'bytes': 0, 'time': duration,
+            'error': result.get('data', 'Unknown error') if result else 'No response'
         }
+
 
 def remote_upload(filepath):
-    start_time = time.time()
+    start = time.time()
     try:
         with open(filepath, 'rb') as f:
-            file_bytes = f.read()
-            encoded = base64.b64encode(file_bytes).decode()
-
+            encoded = base64.b64encode(f.read()).decode()
         filename = os.path.basename(filepath)
-        command_str = f"UPLOAD {filename}||{encoded}\r\n\r\n"
-        hasil = send_command(command_str)
-        elapsed_time = time.time() - start_time
+        command = f"UPLOAD {filename}||{encoded}\r\n\r\n"
+        result = send_command(command)
+        duration = time.time() - start
 
-        if hasil and hasil.get('status') == 'OK':
+        if result and result.get('status') == 'OK':
             print(f"Berhasil upload file: {filename}")
-            return {
-                'status': 'OK',
-                'filename': filename,
-                'bytes': len(file_bytes),
-                'time': elapsed_time,
-                'error': None
-            }
+            return {'status': 'OK', 'filename': filename, 'bytes': len(encoded), 'time': duration, 'error': None}
         else:
-            print(f"Gagal upload file: {hasil.get('data', 'Unknown error')}")
-            return {
-                'status': 'ERROR',
-                'filename': filename,
-                'bytes': 0,
-                'time': elapsed_time,
-                'error': hasil.get('data', 'Unknown error')
-            }
+            print(f"Gagal upload file: {result.get('data', 'Unknown error')}")
+            return {'status': 'ERROR', 'filename': filename, 'bytes': 0, 'time': duration, 'error': result.get('data', 'Unknown error')}
     except Exception as e:
-        elapsed_time = time.time() - start_time
-        print(f"Gagal upload file: {str(e)}")
-        return {
-            'status': 'ERROR',
-            'filename': filepath,
-            'bytes': 0,
-            'time': elapsed_time,
-            'error': str(e)
-        }
+        print(f"Gagal upload file: {e}")
+        return {'status': 'ERROR', 'filename': filepath, 'bytes': 0, 'time': time.time() - start, 'error': str(e)}
+
 
 def run_stress_test(operation, size, client_pool_size):
     filename = TEST_FILES[size]
-    results = []
-    func = remote_upload if operation == 'UPLOAD' else remote_get
-    target = filename if operation == 'UPLOAD' else os.path.basename(filename)
+    task_func = remote_upload if operation == 'UPLOAD' else remote_get
+    file_target = filename if operation == 'UPLOAD' else os.path.basename(filename)
 
+    results = []
     with ThreadPoolExecutor(max_workers=client_pool_size) as executor:
-        futures = [executor.submit(func, target) for _ in range(client_pool_size)]
-        for future in as_completed(futures):
+        tasks = [executor.submit(task_func, file_target) for _ in range(client_pool_size)]
+        for future in as_completed(tasks):
             try:
-                result = future.result()
-                if not isinstance(result, dict):
-                    result = {
-                        'status': 'ERROR',
-                        'filename': target,
-                        'bytes': 0,
-                        'time': 0,
-                        'error': 'Invalid result format'
-                    }
+                res = future.result()
+                if not isinstance(res, dict):
+                    res = {'status': 'ERROR', 'filename': file_target, 'bytes': 0, 'time': 0, 'error': 'Invalid result format'}
             except Exception as e:
-                result = {
-                    'status': 'ERROR',
-                    'filename': target,
-                    'bytes': 0,
-                    'time': 0,
-                    'error': str(e)
-                }
-            results.append(result)
+                res = {'status': 'ERROR', 'filename': file_target, 'bytes': 0, 'time': 0, 'error': str(e)}
+            results.append(res)
     return results
+
 
 def run_single_test(args):
     test_no, op, size, client_pools, server_pools = args
@@ -150,50 +112,47 @@ def run_single_test(args):
     fail = len(results) - success
     total_bytes = sum(r.get('bytes', 0) for r in results)
     total_time = sum(r.get('time', 0) for r in results if r.get('time', 0) > 0)
-    print(f"Total bytes: {total_bytes}, Total time: {total_time}")
     throughput = total_bytes / total_time if total_time > 0 else 0
 
-    row = [
+    print(f"Total bytes: {total_bytes}, Total time: {total_time}")
+    print(f"Done test #{test_no} - {op} {size} C:{client_pools} S:{server_pools}")
+
+    return [
         test_no, op, size, client_pools, server_pools,
         round(total_time, 2), int(throughput),
         success, fail, success, fail
     ]
-    print(f"Done test #{test_no} - {op} {size} C:{client_pools} S:{server_pools}")
-    return row
+
 
 def main(client_pools, server_pools):
     operations = ['UPLOAD', 'DOWNLOAD']
     sizes = ['10MB', '50MB', '100MB']
 
     if not os.path.exists('stress_test_results.csv'):
-        with open('stress_test_results.csv', 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
+        with open('stress_test_results.csv', 'w', newline='') as f:
+            writer = csv.writer(f)
             writer.writerow([
                 'Test No', 'Operation', 'Size', 'Client Pool',
                 'Server Pool', 'Total Time (s)', 'Throughput (B/s)',
                 'Success Client', 'Fail Client', 'Success Server', 'Fail Server'
             ])
 
-    task_args = []
     test_no = 1
-    for size in sizes:
-        for op in operations:
-            task_args.append((test_no, op, size, client_pools, server_pools))
-            test_no += 1
+    task_args = [(test_no + i, op, size, client_pools, server_pools)
+                 for i, (op, size) in enumerate((op, size) for size in sizes for op in operations)]
 
     for args in task_args:
-        result = run_single_test(args)
-        with open('stress_test_results.csv', 'a', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(result)
-            csvfile.flush()
+        row = run_single_test(args)
+        with open('stress_test_results.csv', 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(row)
+            f.flush()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Stress test client-server file transfer")
-    parser.add_argument('--client-pool', type=int, default=1,
-                        help="Daftar ukuran client pool, contoh: 1,5,50")
-    parser.add_argument('--server-pool', type=int, default=1,
-                        help="Daftar ukuran server pool, contoh: 1,5,50")
+    parser.add_argument('--client-pool', type=int, default=1, help="Jumlah client pool")
+    parser.add_argument('--server-pool', type=int, default=1, help="Jumlah server pool")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING)

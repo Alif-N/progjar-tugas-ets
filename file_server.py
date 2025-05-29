@@ -5,13 +5,14 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from file_protocol import FileProtocol
 
 HOST = '0.0.0.0'
-PORT = 1231
+PORT = 45000
 BUFFER_SIZE = 65536  # 64KB
 
 def handle_client(conn_data):
     conn_data, addr = conn_data
     logging.warning(f"[PROCESS] Connection from {addr} established")
     conn = conn_data
+
     data_received = ''
     while True:
         data = conn.recv(BUFFER_SIZE)
@@ -48,11 +49,7 @@ def main(pool_sizes, executor):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Number of Pool Server")
-    parser.add_argument('--pool', type=int, default=1,
-                        help="Daftar ukuran server pool, contoh: 1,5,50")
-    parser.add_argument('--operation', type=str, default='thread',
-                    help="Jenis operasi: thread atau process")
+    parser.add_argument('--pool', type=int, default=1, help="Daftar ukuran server pool, contoh: 1,5,50")
+    parser.add_argument('--operation', type=str, default='thread', help="Jenis operasi: thread atau process")
     args = parser.parse_args()
     main(args.pool, args.operation)
-
-    
